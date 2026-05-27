@@ -830,7 +830,7 @@ function screenShake() {
   }, 400);
 }
 
-async function endGame() {
+function endGame() {
   gameOver = true;
   clearInterval(loopId);
   clearBuff();
@@ -838,7 +838,6 @@ async function endGame() {
   explodeDeathParticles();
   screenShake();
   draw();
-  // 延迟显示文字，让爆炸先播放
   setTimeout(() => {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -851,17 +850,26 @@ async function endGame() {
     ctx.fillText(`最终得分: ${score}`, canvas.width / 2, canvas.height / 2 + 24);
   }, 200);
 
-  await submitScore();
+  submitScore();
 }
 
-async function submitScore() {
-  try {
-    await fetch('/api/scores', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, score }),
-    });
-  } catch { /* 离线时忽略 */ }
+// ==================== 本地排行榜 (localStorage) ====================
+const LB_KEY = 'snake_leaderboard';
+
+function readLocalLB() {
+  try { return JSON.parse(localStorage.getItem(LB_KEY)) || []; } catch { return []; }
+}
+
+function submitScore() {
+  const scores = readLocalLB();
+  const existing = scores.find(s => s.username === username);
+  if (existing) {
+    if (score > existing.score) existing.score = score;
+  } else {
+    scores.push({ username, score });
+  }
+  scores.sort((a, b) => b.score - a.score);
+  localStorage.setItem(LB_KEY, JSON.stringify(scores.slice(0, 20)));
 }
 
 // ==================== 粒子特效 ====================
@@ -1072,27 +1080,24 @@ function drawStar(cx, cy, r) {
 }
 
 // ==================== 排行榜 UI ====================
-async function showLeaderboard(title, showGameOver, finalScore) {
+function showLeaderboard(title, showGameOver, finalScore) {
   lbTitle.textContent = title;
   gameOverMsg.style.display = showGameOver ? 'block' : 'none';
   if (showGameOver) {
     gameOverMsg.innerHTML = `你的最终得分: <strong>${finalScore}</strong>`;
   }
 
-  try {
-    const res = await fetch('/api/leaderboard');
-    const data = await res.json();
-    lbBody.innerHTML = data.map((entry, i) => {
-      const cls = entry.username === username ? 'current' : '';
-      return `<tr class="${cls}">
-        <td class="rank">${i + 1}</td>
-        <td>${escHtml(entry.username)}</td>
-        <td>${entry.score}</td>
-      </tr>`;
-    }).join('') || '<tr><td colspan="3" style="color:#5a5a8e">暂无数据</td></tr>';
-  } catch {
-    lbBody.innerHTML = '<tr><td colspan="3" style="color:#5a5a8e">无法连接服务器</td></tr>';
-  }
+  const data = readLocalLB();
+  lbBody.innerHTML = data.length
+    ? data.map((entry, i) => {
+        const cls = entry.username === username ? 'current' : '';
+        return `<tr class="${cls}">
+          <td class="rank">${i + 1}</td>
+          <td>${escHtml(entry.username)}</td>
+          <td>${entry.score}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="3" style="color:#5a5a8e">暂无数据</td></tr>';
 
   overlay.classList.add('show');
 }
@@ -1169,8 +1174,8 @@ overlay.addEventListener('click', e => {
 
 // 游戏结束时自动弹出排行榜
 const origEndGame = endGame;
-endGame = async function() {
-  await origEndGame();
+endGame = function() {
+  origEndGame();
   showLeaderboard('游戏结束', true, score);
 };
 </script>
